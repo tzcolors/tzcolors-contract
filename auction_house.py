@@ -8,10 +8,10 @@ class FA2ErrorMessage:
         
 class LedgerKey:
     def get_type():
-        return sp.TRecord(token_id = sp.TNat, owner = sp.TAddress).layout(("token_id", "owner"))
+        return sp.TRecord(owner = sp.TAddress, token_id = sp.TNat).layout(( "owner", "token_id"))
         
-    def make(token_id, owner):
-        return sp.set_type_expr(sp.record(token_id = token_id, owner = owner), LedgerKey.get_type())
+    def make(owner, token_id):
+        return sp.set_type_expr(sp.record(owner = owner, token_id = token_id), LedgerKey.get_type())
 
 class BatchTransfer:
     def get_transfer_type():
@@ -45,10 +45,10 @@ class BalanceOfRequest:
 
 class AllowanceKey:
     def get_type():
-        return sp.TRecord(token_id = sp.TNat, owner = sp.TAddress, operator = sp.TAddress ).layout(("token_id", ("owner", "operator")))
+        return sp.TRecord(owner = sp.TAddress, operator = sp.TAddress, token_id = sp.TNat).layout(("owner", ("operator","token_id")))
         
-    def make(token_id, owner, operator):
-        return sp.set_type_expr(sp.record(token_id = token_id, owner = owner, operator = operator), AllowanceKey.get_type())
+    def make(owner, operator, token_id):
+        return sp.set_type_expr(sp.record(owner = owner, operator = operator, token_id = token_id), AllowanceKey.get_type())
 
 class BatchApprove:
     def get_type():
@@ -130,10 +130,10 @@ class TZColorsFA2(sp.Contract):
         sp.for token_id in batch_initial_auction.token_ids:
             sp.verify((~self.data.total_supply.contains(token_id)), message = FA2ErrorMessage.NOT_OWNER)
             sp.verify(token_id<=MAXIMAL_TOKEN_ID, message = FA2ErrorMessage.NOT_OWNER)
-            to_user = LedgerKey.make(token_id, sp.self_address)
+            to_user = LedgerKey.make(sp.self_address, token_id)
             self.data.ledger[to_user] = sp.nat(1)
             self.data.total_supply[token_id] = sp.nat(1)
-            operator_user = AllowanceKey.make(token_id, sp.self_address, self.data.initial_auction_house_address)
+            operator_user = AllowanceKey.make(sp.self_address, self.data.initial_auction_house_address, token_id)
             self.data.allowances[operator_user] = True
             auction_house = sp.contract(AuctionCreateRequest.get_type(), self.data.initial_auction_house_address, entry_point = "create_auction").open_some()
             auction_create_request = sp.record(
@@ -155,11 +155,11 @@ class TZColorsFA2(sp.Contract):
             with update_operator_request.match_cases() as argument:
                 with argument.match("add_operator") as update:
                     sp.verify(update.owner == sp.sender, message=FA2ErrorMessage.NOT_OWNER)
-                    operator_user = AllowanceKey.make(update.token_id, update.owner, update.operator)
+                    operator_user = AllowanceKey.make(update.owner, update.operator, update.token_id)
                     self.data.allowances[operator_user] = True
                 with argument.match("remove_operator") as update:
                     sp.verify(update.owner == sp.sender, message=FA2ErrorMessage.NOT_OWNER)
-                    operator_user = AllowanceKey.make(update.token_id, update.owner, update.operator)
+                    operator_user = AllowanceKey.make(update.owner, update.operator, update.token_id)
                     del self.data.allowances[operator_user]
     
     @sp.entry_point
@@ -168,12 +168,12 @@ class TZColorsFA2(sp.Contract):
         sp.for transfer in batch_transfers:
            sp.for tx in transfer.txs:
                 sp.if (tx.amount > sp.nat(0)):
-                    from_user = LedgerKey.make(tx.token_id, transfer.from_)
-                    to_user = LedgerKey.make(tx.token_id, tx.to_)
+                    from_user = LedgerKey.make(transfer.from_, tx.token_id)
+                    to_user = LedgerKey.make(tx.to_, tx.token_id)
                     
                     sp.verify((self.data.ledger.get(from_user,sp.nat(0)) >= tx.amount), message = FA2ErrorMessage.INSUFFICIENT_BALANCE)
                     
-                    operator_user = AllowanceKey.make(tx.token_id, transfer.from_, sp.sender)
+                    operator_user = AllowanceKey.make(transfer.from_, sp.sender, tx.token_id)
                     
                     sp.verify(((sp.sender == transfer.from_) | self.data.allowances.get(operator_user, False)), message=FA2ErrorMessage.NOT_OWNER)
                     self.data.ledger[from_user] = sp.as_nat(self.data.ledger[from_user] - tx.amount)
@@ -191,7 +191,7 @@ class TZColorsFA2(sp.Contract):
         
         responses = sp.local("responses", sp.set_type_expr(sp.list([]),BalanceOfRequest.get_response_type()))
         sp.for request in balance_of_request.requests:
-            responses.value.push(sp.record(request = request, balance = self.data.ledger.get(LedgerKey.make(request.token_id, request.owner),0)))
+            responses.value.push(sp.record(request = request, balance = self.data.ledger.get(LedgerKey.make(request.owner, request.token_id),0)))
             
         sp.transfer(responses.value, sp.mutez(0), balance_of_request.callback)
 
